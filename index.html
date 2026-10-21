@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>אנליזת שוק - ניתוח מדדים משפיעים</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: #334155;
+      --accent: #3b82f6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-main); padding: 24px 16px; min-height: 100vh; }
+    .container { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+
+    /* Search Bar */
+    .search-box {
+      display: flex; justify-content: center; gap: 12px; background: var(--card-bg);
+      padding: 16px; border-radius: 16px; border: 1px solid var(--border-color);
+    }
+    .search-box input {
+      padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color);
+      background: #0f172a; color: white; font-size: 16px; width: 220px; text-align: center; text-transform: uppercase;
+    }
+    .search-box button {
+      padding: 12px 24px; border-radius: 8px; border: none; background: var(--accent);
+      color: white; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s;
+    }
+    .search-box button:hover { background: #2563eb; }
+
+    /* Header Section */
+    .header-card { text-align: center; background: var(--card-bg); padding: 20px; border-radius: 16px; border: 1px solid var(--border-color); }
+    .header-card h1 { font-size: 26px; color: #ffffff; }
+    .header-card p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+
+    /* Chart Section */
+    .chart-card { background: var(--card-bg); padding: 24px; border-radius: 16px; border: 1px solid var(--border-color); }
+    .chart-container { position: relative; height: 360px; width: 100%; }
+
+    /* Loader */
+    .loader { display: none; text-align: center; padding: 20px; color: var(--accent); font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  
+  <!-- תיבת חיפוש -->
+  <div class="search-box">
+    <input type="text" id="tickerInput" placeholder="הכנס סימול (למשל: NVDA)" value="NVDA">
+    <button onclick="fetchAnalysis()">בצע אנליזת שוק</button>
+  </div>
+
+  <div id="loader" class="loader">טוען נתוני שוק בזמן אמת... ⏳</div>
+
+  <!-- כותרת מניה -->
+  <div class="header-card" id="headerCard">
+    <h1 id="stockTitle">אנליזת שוק</h1>
+    <p id="stockSub">טען מניה כדי לצפות בהשפעת המדדים</p>
+  </div>
+
+  <!-- גרף עמודות -->
+  <div class="chart-card">
+    <div class="chart-container">
+      <canvas id="impactChart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let chartInstance = null;
+
+  function getColorByTrend(trend, strength) {
+    const greenShades = ["#a7f3d0", "#6ee7b7", "#34d399", "#10b981", "#047857"];
+    const redShades   = ["#fca5a5", "#f87171", "#ef4444", "#dc2626", "#b91c1c"];
+    const rangeColor  = "#f97316";
+
+    const idx = Math.min(Math.max(strength, 1), 5) - 1;
+    if (trend === 'up') return greenShades[idx];
+    if (trend === 'down') return redShades[idx];
+    return rangeColor;
+  }
+
+  async function fetchAnalysis() {
+    const ticker = document.getElementById('tickerInput').value.trim();
+    if (!ticker) return;
+
+    document.getElementById('loader').style.display = 'block';
+
+    try {
+      const response = await fetch(`/api/analyze/${ticker}`);
+      if (!response.ok) throw new Error("מניה לא נמצאה");
+      const data = await response.json();
+
+      document.getElementById('stockTitle').innerText = `${data.companyName} (${data.ticker})`;
+      document.getElementById('stockSub').innerText = `סקטור: ${data.sector} | מקדם בטא (Beta): ${data.beta}`;
+
+      renderChart(data.indices);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      document.getElementById('loader').style.display = 'none';
+    }
+  }
+
+  function renderChart(indices) {
+    const labels = indices.map(item => item.name);
+    const impacts = indices.map(item => item.impact);
+    const backgroundColors = indices.map(item => getColorByTrend(item.trend, item.strength));
+
+    const ctx = document.getElementById('impactChart').getContext('2d');
+
+    if (chartInstance) chartInstance.destroy();
+
+    chartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: impacts,
+          backgroundColor: backgroundColors,
+          borderRadius: 8,
+          borderSkipped: false
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => ` משקל השפעה: ${context.raw}%`
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 50,
+            grid: { color: '#334155' },
+            ticks: { color: '#94a3b8', callback: value => value + '%' }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { color: '#f8fafc', font: { size: 13, weight: 'bold' } }
+          }
+        }
+      }
+    });
+  }
+
+  // טעינה ראשונית
+  window.onload = fetchAnalysis;
+</script>
+
+</body>
+</html>
